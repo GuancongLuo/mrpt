@@ -178,9 +178,9 @@ void CStream::WriteObject(const  CSerializable *o )
 	}
 	else
 	{
-		className = "nullptr";	
+		className = "nullptr";
 	}
-	
+
 	int8_t  classNamLen = strlen(className);
 	int8_t  classNamLen_mod = classNamLen | 0x80;
 
@@ -463,10 +463,14 @@ void CStream::internal_ReadObject(CSerializablePtr &newObj,CSerializable *existi
 	{
 		throw;
 	}
+	catch (CExceptionEOF&)
+	{
+		throw;
+	}
 	catch(std::exception &e)
 	{
 		if (lengthReadClassName==255) {
-			THROW_TYPED_EXCEPTION("Cannot read object due to EOF", CExceptionEOF);
+			THROW_TYPED_EXCEPTION(mrpt::format("Cannot read object (EOF?): %s",e.what()), CExceptionEOF);
 		}
 		else {
 			THROW_STACKED_EXCEPTION_CUSTOM_MSG2(e,"Exception while parsing typed object '%s' from stream!\n",readClassName);
@@ -603,7 +607,7 @@ bool  CStream::receiveMessage( utils::CMessage &msg )
 			nBytesToRx = 1;
 		else
 		{
-			if (buf[0] == 0x69) 
+			if (buf[0] == 0x69)
 			{
 				payload_len = buf[2];
 				expectedLen = payload_len + 4;
@@ -616,7 +620,7 @@ bool  CStream::receiveMessage( utils::CMessage &msg )
 			nBytesToRx = expectedLen - nBytesInFrame;
 		} // end else
 
-		unsigned long nBytesRx = 0; 
+		unsigned long nBytesRx = 0;
 		try {
 			nBytesRx = ReadBufferImmediate(&buf[nBytesInFrame], nBytesToRx);
 		}

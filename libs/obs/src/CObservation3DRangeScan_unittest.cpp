@@ -8,7 +8,13 @@
    +---------------------------------------------------------------------------+ */
 
 #include <mrpt/obs/CObservation3DRangeScan.h>
-
+#include <mrpt/obs/CSensoryFrame.h>
+#include <mrpt/maps/CSimplePointsMap.h>
+#include <mrpt/system/filesystem.h>
+#include <mrpt/utils/CFileGZInputStream.h>
+#include <mrpt/utils/metaprogramming.h>
+#include <mrpt/math/CHistogram.h>
+#include <mrpt/config.h>
 #include <gtest/gtest.h>
 
 using namespace mrpt;
@@ -51,8 +57,9 @@ TEST(CObservation3DRangeScan, Project3D_noFilter)
 		mrpt::obs::CObservation3DRangeScan  o;
 		fillSampleObs(o,pp,i);
 
-		o.project3DPointsFromDepthImageInto(o,pp,fp);
-		EXPECT_EQ(o.points3D_x.size(),21U) << " testcase flags: i=" << i << std::endl;
+		o.project3DPointsFromDepthImageInto(o, pp, fp);
+		EXPECT_EQ(o.points3D_x.size(), 21U)
+			<< " testcase flags: i=" << i << std::endl;
 	}
 }
 
@@ -74,8 +81,9 @@ TEST(CObservation3DRangeScan, Project3D_filterMinMax1)
 		fillSampleObs(o,pp,i);
 		fp.rangeCheckBetween = (i&8)!=0;
 
-		o.project3DPointsFromDepthImageInto(o,pp,fp);
-		EXPECT_EQ(o.points3D_x.size(),20U) << " testcase flags: i=" << i << std::endl;
+		o.project3DPointsFromDepthImageInto(o, pp, fp);
+		EXPECT_EQ(o.points3D_x.size(), 20U)
+			<< " testcase flags: i=" << i << std::endl;
 	}
 }
 
@@ -84,7 +92,7 @@ TEST(CObservation3DRangeScan, Project3D_filterMinMaxAllBetween)
 	mrpt::math::CMatrix fMax(TEST_RANGEIMG_HEIGHT,TEST_RANGEIMG_WIDTH),fMin(TEST_RANGEIMG_HEIGHT,TEST_RANGEIMG_WIDTH);
 	// Default filter=0.0f -> no filtering
 	for (int r=10;r<16;r++)
-		for (int c=10;c<16;c++) 
+		for (int c=10;c<16;c++)
 		{
 			fMin(r,c) = r-0.1f;  // All points actually lie in between
 			fMax(r,c) = r+0.1f;
@@ -100,7 +108,7 @@ TEST(CObservation3DRangeScan, Project3D_filterMinMaxAllBetween)
 		mrpt::obs::CObservation3DRangeScan  o;
 		fillSampleObs(o,pp,i);
 		fp.rangeCheckBetween = (i&8)!=0;
-		
+
 		o.project3DPointsFromDepthImageInto(o,pp,fp);
 		EXPECT_EQ(o.points3D_x.size(),fp.rangeCheckBetween ? 21U:0U ) << " testcase flags: i=" << i << std::endl;
 	}
@@ -112,7 +120,7 @@ TEST(CObservation3DRangeScan, Project3D_filterMinMaxNoneBetween)
 	mrpt::math::CMatrix fMax(TEST_RANGEIMG_HEIGHT,TEST_RANGEIMG_WIDTH),fMin(TEST_RANGEIMG_HEIGHT,TEST_RANGEIMG_WIDTH);
 	// Default filter=0.0f -> no filtering
 	for (int r=10;r<16;r++)
-		for (int c=10;c<16;c++) 
+		for (int c=10;c<16;c++)
 		{
 			fMin(r,c) = r+1.1f;  // No point lies in between
 			fMax(r,c) = r+1.2f;
@@ -128,7 +136,7 @@ TEST(CObservation3DRangeScan, Project3D_filterMinMaxNoneBetween)
 		mrpt::obs::CObservation3DRangeScan  o;
 		fillSampleObs(o,pp,i);
 		fp.rangeCheckBetween = (i&8)!=0;
-		
+
 		o.project3DPointsFromDepthImageInto(o,pp,fp);
 		EXPECT_EQ(o.points3D_x.size(),fp.rangeCheckBetween ? 0U:21U ) << " testcase flags: i=" << i << std::endl;
 	}
@@ -148,11 +156,12 @@ TEST(CObservation3DRangeScan, Project3D_filterMin)
 
 	for (int i=0;i<8;i++) // test all combinations of flags
 	{
-		mrpt::obs::CObservation3DRangeScan  o;
-		fillSampleObs(o,pp,i);
-		
-		o.project3DPointsFromDepthImageInto(o,pp,fp);
-		EXPECT_EQ(o.points3D_x.size(), 6U ) << " testcase flags: i=" << i << std::endl;
+		mrpt::obs::CObservation3DRangeScan o;
+		fillSampleObs(o, pp, i);
+
+		o.project3DPointsFromDepthImageInto(o, pp, fp);
+		EXPECT_EQ(o.points3D_x.size(), 6U)
+			<< " testcase flags: i=" << i << std::endl;
 	}
 }
 
@@ -170,10 +179,93 @@ TEST(CObservation3DRangeScan, Project3D_filterMax)
 
 	for (int i=0;i<8;i++) // test all combinations of flags
 	{
-		mrpt::obs::CObservation3DRangeScan  o;
-		fillSampleObs(o,pp,i);
-		
-		o.project3DPointsFromDepthImageInto(o,pp,fp);
-		EXPECT_EQ(o.points3D_x.size(), 3U ) << " testcase flags: i=" << i << std::endl;
+		mrpt::obs::CObservation3DRangeScan o;
+		fillSampleObs(o, pp, i);
+
+		o.project3DPointsFromDepthImageInto(o, pp, fp);
+		EXPECT_EQ(o.points3D_x.size(), 3U)
+			<< " testcase flags: i=" << i << std::endl;
 	}
 }
+
+// We need OPENCV to read the image internal to CObservation3DRangeScan,
+// so skip this test if built without opencv.
+#if MRPT_HAS_OPENCV
+
+TEST(CObservation3DRangeScan, LoadAndCheckFloorPoints)
+{
+	const string rawlog_fil = mrpt::utils::MRPT_GLOBAL_UNITTEST_SRC_DIR +
+							  string("/tests/test-3d-obs-ground.rawlog");
+	if (!mrpt::system::fileExists(rawlog_fil))
+	{
+		GTEST_FAIL() << "ERROR: test due to missing file: " << rawlog_fil
+					 << "\n";
+		return;
+	}
+
+	// Load sample 3D scan from file:
+	mrpt::obs::CSensoryFrame sf;
+	mrpt::utils::CFileGZInputStream f(rawlog_fil);
+	f >> sf;
+
+	auto obs = sf.getObservationByClass<mrpt::obs::CObservation3DRangeScan>();
+
+	// Depth -> 3D points:
+	mrpt::maps::CSimplePointsMap pts;
+	mrpt::obs::T3DPointsProjectionParams pp;
+	obs->project3DPointsFromDepthImageInto(pts, pp);
+	// rotate to account for the sensor pose:
+	pts.changeCoordinatesReference(obs->sensorPose);
+
+	mrpt::math::CHistogram hist(-0.15, 0.15, 30);
+	std::vector<double> ptsz;
+	mrpt::utils::metaprogramming::copy_container_typecasting(
+		pts.getPointsBufferRef_z(), ptsz);
+	hist.add(ptsz);
+
+	std::vector<double> bin_x, bin_count;
+	hist.getHistogram(bin_x, bin_count);
+
+	/*
+	Hist[0] x=-0.15 count= 0
+	Hist[1] x=-0.139655 count= 0
+	Hist[2] x=-0.12931 count= 0
+	Hist[3] x=-0.118966 count= 0
+	Hist[4] x=-0.108621 count= 0
+	Hist[5] x=-0.0982759 count= 0
+	Hist[6] x=-0.087931 count= 0
+	Hist[7] x=-0.0775862 count= 0
+	Hist[8] x=-0.0672414 count= 0
+	Hist[9] x=-0.0568966 count= 0
+	Hist[10] x=-0.0465517 count= 1
+	Hist[11] x=-0.0362069 count= 47
+	Hist[12] x=-0.0258621 count= 942
+	Hist[13] x=-0.0155172 count= 5593
+	Hist[14] x=-0.00517241 count= 12903
+	Hist[15] x=0.00517241 count= 9116
+	Hist[16] x=0.0155172 count= 4666
+	Hist[17] x=0.0258621 count= 2677
+	Hist[18] x=0.0362069 count= 595
+	Hist[19] x=0.0465517 count= 4
+	Hist[20] x=0.0568966 count= 0
+	Hist[21] x=0.0672414 count= 0
+	Hist[22] x=0.0775862 count= 0
+	Hist[23] x=0.087931 count= 0
+	Hist[24] x=0.0982759 count= 0
+	Hist[25] x=0.108621 count= 0
+	Hist[26] x=0.118966 count= 0
+	Hist[27] x=0.12931 count= 0
+	Hist[28] x=0.139655 count= 0
+	Hist[29] x=0.15 count= 0
+	//for (unsigned int i=0;i<bin_x.size();i++)
+	//std::cout << "Hist[" << i << "] x=" << bin_x[i] << " count= " <<
+	bin_count[i] << std::endl;
+	*/
+
+	EXPECT_LE(bin_count[11], 100);
+	EXPECT_LE(bin_count[12], 1000);
+	EXPECT_GE(bin_count[14], 12000);
+	EXPECT_LE(bin_count[18], 700);
+	EXPECT_LE(bin_count[19], 20);
+}
+#endif

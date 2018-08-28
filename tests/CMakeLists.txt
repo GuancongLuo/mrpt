@@ -75,7 +75,12 @@ ENDIF ()
 
 	# Deps:
 	get_property(lst_deps GLOBAL PROPERTY "${_TSTLIB_DASH}_LIB_DEPS")
+	# extra deps:
+	get_property(extra_deps GLOBAL PROPERTY "${_TSTLIB}_UNIT_TEST_EXTRA_DEPS")
+	set(lst_deps ${lst_deps} ${extra_deps})
+
 	set(lst_deps ${_TSTLIB_DASH} ${lst_deps}) # The order in this list is very important for linking!
+
 	FOREACH(_DEPLIB ${lst_deps})
 		# Include dirs:
 		STRING(REGEX REPLACE "mrpt-(.*)" "\\1" _DEPLIB_DASH ${_DEPLIB})
